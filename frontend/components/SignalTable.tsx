@@ -83,7 +83,7 @@ export default function SignalTable({ signals, onSourceRefClick }: SignalTablePr
     }
   };
 
-  if (signals.length === 0) {
+  if (!signals || signals.length === 0) {
     return (
       <div className="card">
         <h2 className="text-xl font-semibold text-gray-900 mb-6">Market Signals</h2>

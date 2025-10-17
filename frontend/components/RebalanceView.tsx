@@ -35,12 +35,12 @@ export default function RebalanceView({ rebalance, onSourceRefClick }: Rebalance
     return 'Rebalance Needed';
   };
 
-  const symbols = Object.keys(rebalance.target_allocation);
+  const symbols = Object.keys(rebalance?.target_allocation || {});
   const allocationData = symbols.map(symbol => ({
     symbol,
-    current: rebalance.current_allocation[symbol] || 0,
-    target: rebalance.target_allocation[symbol],
-    difference: (rebalance.current_allocation[symbol] || 0) - rebalance.target_allocation[symbol]
+    current: rebalance?.current_allocation?.[symbol] || 0,
+    target: rebalance?.target_allocation?.[symbol] || 0,
+    difference: (rebalance?.current_allocation?.[symbol] || 0) - (rebalance?.target_allocation?.[symbol] || 0)
   }));
 
   return (
@@ -48,9 +48,9 @@ export default function RebalanceView({ rebalance, onSourceRefClick }: Rebalance
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-semibold text-gray-900">Portfolio Rebalance</h2>
         <div className="flex items-center space-x-2">
-          {getDriftIcon(rebalance.drift)}
-          <span className={`text-sm font-medium ${getDriftColor(rebalance.drift)}`}>
-            {getDriftStatus(rebalance.drift)}
+          {getDriftIcon(rebalance?.drift || 0)}
+          <span className={`text-sm font-medium ${getDriftColor(rebalance?.drift || 0)}`}>
+            {getDriftStatus(rebalance?.drift || 0)}
           </span>
         </div>
       </div>
@@ -59,19 +59,19 @@ export default function RebalanceView({ rebalance, onSourceRefClick }: Rebalance
         <div className="metric-card">
           <div className="text-sm font-medium text-gray-500">Total Value</div>
           <div className="text-lg font-bold text-gray-900">
-            ${rebalance.total_value.toLocaleString()}
+            ${rebalance?.total_value?.toLocaleString() || '0'}
           </div>
         </div>
         <div className="metric-card">
           <div className="text-sm font-medium text-gray-500">Drift</div>
-          <div className={`text-lg font-bold ${getDriftColor(rebalance.drift)}`}>
-            {(rebalance.drift * 100).toFixed(2)}%
+          <div className={`text-lg font-bold ${getDriftColor(rebalance?.drift || 0)}`}>
+            {((rebalance?.drift || 0) * 100).toFixed(2)}%
           </div>
         </div>
         <div className="metric-card">
           <div className="text-sm font-medium text-gray-500">Status</div>
           <div className="text-lg font-bold text-gray-900">
-            {rebalance.rebalance_needed ? 'Action Required' : 'Balanced'}
+            {rebalance?.rebalance_needed ? 'Action Required' : 'Balanced'}
           </div>
         </div>
       </div>
@@ -133,7 +133,7 @@ export default function RebalanceView({ rebalance, onSourceRefClick }: Rebalance
 
         <div className="flex items-center justify-between pt-4 border-t border-gray-200">
           <div className="flex flex-wrap gap-1">
-            {rebalance.source_refs.map((ref, refIndex) => (
+            {rebalance?.source_refs?.map((ref, refIndex) => (
               <button
                 key={refIndex}
                 onClick={() => onSourceRefClick(ref)}
@@ -148,7 +148,7 @@ export default function RebalanceView({ rebalance, onSourceRefClick }: Rebalance
               <RefreshCw className="h-4 w-4 mr-2" />
               Simulate Rebalance
             </button>
-            {rebalance.rebalance_needed && (
+            {rebalance?.rebalance_needed && (
               <button className="btn btn-primary">
                 Execute Rebalance
               </button>
