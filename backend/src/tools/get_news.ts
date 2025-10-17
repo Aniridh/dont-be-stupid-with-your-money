@@ -8,14 +8,14 @@ import {
   ErrorResponse, 
   NewsData 
 } from '../lib/schema.js';
-import { isStubMode } from '../env.js';
+import { isStubMode, isLiveNews } from '../env.js';
 
 export async function getNews(input: GetNewsInput): Promise<SuccessResponse | ErrorResponse> {
   const toolCallId = generateToolCallId();
   const startTime = Date.now();
 
   // Add breadcrumb for tool execution
-  if (process.env.SENTRY_DSN) {
+  if (process.env['SENTRY_DSN']) {
     Sentry.addBreadcrumb({
       message: 'Executing get_news tool',
       category: 'tool',
@@ -31,18 +31,29 @@ export async function getNews(input: GetNewsInput): Promise<SuccessResponse | Er
   try {
     let news: NewsData[];
 
-    if (isStubMode()) {
-      // Generate deterministic stub data
-      news = generateStubNews(input.symbols, input.hours_back);
+    if (isLiveNews()) {
+      try {
+        // LIVE mode: Use Apify actor for real news fetching
+        news = await fetchRealNews(input.symbols, input.hours_back);
+      } catch (error) {
+        console.warn(`⚠️ Live news fetch failed, falling back to stub: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        news = generateStubNews(input.symbols, input.hours_back);
+      }
     } else {
-      // LIVE mode: Use Apify actor for real news fetching
-      news = await fetchRealNews(input.symbols, input.hours_back);
+      // STUB mode: Generate deterministic stub data
+      news = generateStubNews(input.symbols, input.hours_back);
     }
 
     const response: SuccessResponse = {
       tool_call_id: toolCallId,
       data: {
-        news,
+        items: news,
+        meta: {
+          tickers: input.symbols,
+          lookback_days: Math.ceil(input.hours_back / 24),
+          source: isLiveNews() ? 'apify' : 'stub',
+          provider: isLiveNews() ? 'apify' : 'stub'
+        },
         source_refs: [toolCallId]
       }
     };
@@ -56,7 +67,7 @@ export async function getNews(input: GetNewsInput): Promise<SuccessResponse | Er
     const duration = Date.now() - startTime;
     
     // Capture exception in Sentry
-    if (process.env.SENTRY_DSN) {
+    if (process.env['SENTRY_DSN']) {
       Sentry.captureException(error, {
         tags: {
           tool_name: 'get_news',
@@ -69,16 +80,21 @@ export async function getNews(input: GetNewsInput): Promise<SuccessResponse | Er
       });
     }
     
+    // Determine error code based on error type
+    const errorCode = error instanceof Error && error.message.includes('Apify') 
+      ? 'APIFY_ERROR' 
+      : 'NEWS_FETCH_ERROR';
+    
     const errorResponse: ErrorResponse = {
       tool_call_id: toolCallId,
       error: {
-        code: 'NEWS_FETCH_ERROR',
+        code: errorCode,
         message: error instanceof Error ? error.message : 'Unknown error fetching news'
       }
     };
 
     auditLogger.logToolCall(toolCallId, 'get_news', input, errorResponse, duration, {
-      code: 'NEWS_FETCH_ERROR',
+      code: errorCode,
       message: error instanceof Error ? error.message : 'Unknown error',
       ...(error instanceof Error && error.stack && { stack: error.stack })
     });
@@ -284,29 +300,32 @@ function generateStubNews(symbols: string[], hoursBack: number): NewsData[] {
 }
 
 async function fetchRealNews(symbols: string[], hoursBack: number): Promise<NewsData[]> {
-  const apifyToken = process.env.APIFY_TOKEN;
-  const apifyActorId = process.env.APIFY_ACTOR_ID;
+  const apifyToken = process.env['APIFY_TOKEN'];
+  const apifyActorId = process.env['APIFY_ACTOR_ID'];
   
   if (!apifyToken || !apifyActorId) {
     throw new Error('APIFY_TOKEN and APIFY_ACTOR_ID environment variables are required for live news fetching');
   }
 
+  const lookbackDays = Math.ceil(hoursBack / 24);
+  const tickers = symbols;
+
   try {
     // Start actor run
-    const runResponse = await fetch(`https://api.apify.com/v2/acts/${apifyActorId}/runs`, {
+    const runResponse = await fetch(`https://api.apify.com/v2/acts/${apifyActorId}/runs?token=${apifyToken}`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apifyToken}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        tickers: symbols,
-        lookback_days: Math.ceil(hoursBack / 24)
+        tickers,
+        lookback_days: lookbackDays
       })
     });
 
     if (!runResponse.ok) {
-      throw new Error(`Failed to start Apify actor: ${runResponse.statusText}`);
+      const errorText = await runResponse.text();
+      throw new Error(`Apify API error: ${runResponse.status} ${runResponse.statusText} - ${errorText}`);
     }
 
     const runData = await runResponse.json() as { data: { id: string } };
@@ -321,14 +340,11 @@ async function fetchRealNews(symbols: string[], hoursBack: number): Promise<News
     while (!completed && attempts < maxAttempts) {
       await new Promise(resolve => setTimeout(resolve, pollInterval));
       
-      const statusResponse = await fetch(`https://api.apify.com/v2/actor-runs/${runId}`, {
-        headers: {
-          'Authorization': `Bearer ${apifyToken}`
-        }
-      });
+      const statusResponse = await fetch(`https://api.apify.com/v2/actor-runs/${runId}?token=${apifyToken}`);
 
       if (!statusResponse.ok) {
-        throw new Error(`Failed to check actor status: ${statusResponse.statusText}`);
+        const errorText = await statusResponse.text();
+        throw new Error(`Apify status check error: ${statusResponse.status} ${statusResponse.statusText} - ${errorText}`);
       }
 
       const statusData = await statusResponse.json() as { data: { status: string } };
@@ -347,15 +363,12 @@ async function fetchRealNews(symbols: string[], hoursBack: number): Promise<News
       throw new Error('Actor run timed out after 5 minutes');
     }
 
-    // Fetch results
-    const resultsResponse = await fetch(`https://api.apify.com/v2/actor-runs/${runId}/dataset/items`, {
-      headers: {
-        'Authorization': `Bearer ${apifyToken}`
-      }
-    });
+    // Fetch results from default dataset
+    const resultsResponse = await fetch(`https://api.apify.com/v2/actor-runs/${runId}/dataset/items?token=${apifyToken}`);
 
     if (!resultsResponse.ok) {
-      throw new Error(`Failed to fetch actor results: ${resultsResponse.statusText}`);
+      const errorText = await resultsResponse.text();
+      throw new Error(`Apify results fetch error: ${resultsResponse.status} ${resultsResponse.statusText} - ${errorText}`);
     }
 
     const rawResults = await resultsResponse.json() as any[];
@@ -373,21 +386,62 @@ function normalizeApifyNews(rawResults: any[], symbols: string[]): NewsData[] {
   const normalizedNews: NewsData[] = [];
 
   rawResults.forEach((item: any) => {
-    // Normalize Apify output to our NewsData format
-    // This assumes Apify returns data in a specific format - adjust as needed
+    // Normalize Apify output to exact format: { ticker, headline, timestamp, publisher, sentiment, tags }
+    const ticker = item.ticker || item.symbol || 'UNKNOWN';
+    const headline = item.headline || item.title || 'No headline available';
+    const timestamp = item.timestamp || item.publishedAt || item.published_at || item.date || new Date().toISOString();
+    const publisher = item.publisher || item.source || item.domain || 'Unknown';
+    
+    // Ensure sentiment is in [-1..1] range
+    let sentiment = parseFloat(item.sentiment) || 0;
+    sentiment = Math.max(-1, Math.min(1, sentiment));
+    
+    // Normalize tags to specific categories
+    const rawTags = item.tags || item.categories || [];
+    const normalizedTags: Array<'earnings' | 'guidance' | 'regulatory' | 'product'> = [];
+    
+    if (Array.isArray(rawTags)) {
+      rawTags.forEach((tag: string) => {
+        const lowerTag = tag.toLowerCase();
+        if (lowerTag.includes('earnings') || lowerTag.includes('profit') || lowerTag.includes('revenue')) {
+          normalizedTags.push('earnings');
+        } else if (lowerTag.includes('guidance') || lowerTag.includes('forecast') || lowerTag.includes('outlook')) {
+          normalizedTags.push('guidance');
+        } else if (lowerTag.includes('regulatory') || lowerTag.includes('regulation') || lowerTag.includes('compliance')) {
+          normalizedTags.push('regulatory');
+        } else if (lowerTag.includes('product') || lowerTag.includes('launch') || lowerTag.includes('feature')) {
+          normalizedTags.push('product');
+        }
+      });
+    }
+    
+    // If no tags found, try to infer from content
+    if (normalizedTags.length === 0) {
+      const content = (headline + ' ' + (item.summary || '')).toLowerCase();
+      if (content.includes('earnings') || content.includes('profit') || content.includes('revenue')) {
+        normalizedTags.push('earnings');
+      } else if (content.includes('guidance') || content.includes('forecast') || content.includes('outlook')) {
+        normalizedTags.push('guidance');
+      } else if (content.includes('regulatory') || content.includes('regulation') || content.includes('compliance')) {
+        normalizedTags.push('regulatory');
+      } else if (content.includes('product') || content.includes('launch') || content.includes('feature')) {
+        normalizedTags.push('product');
+      }
+    }
+
     const newsItem: NewsData = {
-      symbol: item.symbol || item.ticker || 'UNKNOWN',
-      headline: item.title || item.headline || 'No headline available',
+      symbol: ticker,
+      headline,
       summary: item.summary || item.description || item.content || '',
-      sentiment: parseFloat(item.sentiment) || 0,
+      sentiment,
       impact_score: parseFloat(item.impact_score) || 0.5,
-      published_at: item.publishedAt || item.published_at || item.date || new Date().toISOString(),
-      source: item.source || item.publisher || item.domain || 'Unknown',
-      tags: Array.isArray(item.tags) ? item.tags : (item.category ? [item.category] : [])
+      published_at: timestamp,
+      source: publisher,
+      tags: normalizedTags
     };
 
     // Only include news for requested symbols
-    if (symbols.includes(newsItem.symbol)) {
+    if (symbols.includes(ticker)) {
       normalizedNews.push(newsItem);
     }
   });

@@ -125,6 +125,42 @@ app.get('/health', (req, res) => {
 });
 ```
 
+### 5. Test Endpoint for Sentry Verification
+A special `/boom` endpoint is available for testing Sentry error capture:
+
+```typescript
+app.get('/boom', (req, res) => {
+  if (process.env.SENTRY_DSN) {
+    // Intentionally throw an error to test Sentry
+    const error = new Error('Test error for Sentry verification');
+    Sentry.captureException(error, {
+      tags: {
+        test_endpoint: 'boom',
+        purpose: 'sentry_verification'
+      },
+      extra: {
+        timestamp: new Date().toISOString(),
+        user_agent: req.get('User-Agent')
+      }
+    });
+    
+    res.status(500).json({
+      ok: false,
+      msg: 'test error',
+      sentry_captured: true
+    });
+  } else {
+    res.status(400).json({
+      ok: false,
+      msg: 'SENTRY_DSN not configured',
+      sentry_captured: false
+    });
+  }
+});
+```
+
+**Visit `/boom` once to verify DSN.** This endpoint intentionally throws an error that gets captured by Sentry, allowing you to verify that your Sentry integration is working correctly.
+
 ### 2. Python Integration
 ```python
 # sentry_config.py

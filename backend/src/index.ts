@@ -7,16 +7,16 @@ import * as Sentry from '@sentry/node';
 import { server as mcpServer, mcpManifest } from './mcp.js';
 import { env, isStubMode } from './env.js';
 import { auditLogger } from './lib/audit.js';
+import airiaRoute from './routes/airia.js';
 
 // Initialize Sentry if DSN is provided
-if (process.env.SENTRY_DSN) {
+if (process.env['SENTRY_DSN']) {
   Sentry.init({
-    dsn: process.env.SENTRY_DSN,
+    dsn: process.env['SENTRY_DSN'],
     environment: 'hackathon',
     tracesSampleRate: 1.0,
     integrations: [
       new Sentry.Integrations.Http({ tracing: true }),
-      new Sentry.Integrations.Express({ app: undefined }), // Will be set after app creation
     ],
     beforeSend(event) {
       // Filter out sensitive data
@@ -41,9 +41,8 @@ if (process.env.SENTRY_DSN) {
 const app = express();
 
 // Sentry middleware (must be first)
-if (process.env.SENTRY_DSN) {
-  app.use(Sentry.requestHandler());
-  app.use(Sentry.tracingHandler());
+if (process.env['SENTRY_DSN']) {
+  // Note: Sentry middleware will be added after app setup
 }
 
 // Middleware
@@ -51,6 +50,22 @@ app.use(helmet());
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+
+// --- CORS Middleware (for local dev) ---
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "http://localhost:3000");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  if (req.method === "OPTIONS") {
+    res.sendStatus(204);
+    return;
+  }
+  next();
+});
+
+// --- Startup Banner ---
+console.log(`🔎 Health URL: http://localhost:${env.PORT}/health`);
+console.log(`🌐 Allowed Origin: http://localhost:3000`);
 
 // Request logging middleware
 app.use((req, res, next) => {
@@ -76,6 +91,36 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Test endpoint for Sentry error capture
+app.get('/boom', (req, res) => {
+  if (process.env['SENTRY_DSN']) {
+    // Intentionally throw an error to test Sentry
+    const error = new Error('Test error for Sentry verification');
+    Sentry.captureException(error, {
+      tags: {
+        test_endpoint: 'boom',
+        purpose: 'sentry_verification'
+      },
+      extra: {
+        timestamp: new Date().toISOString(),
+        user_agent: req.get('User-Agent')
+      }
+    });
+    
+    res.status(500).json({
+      ok: false,
+      msg: 'test error',
+      sentry_captured: true
+    });
+  } else {
+    res.status(400).json({
+      ok: false,
+      msg: 'SENTRY_DSN not configured',
+      sentry_captured: false
+    });
+  }
+});
+
 // MCP manifest endpoint
 app.get('/mcp/manifest', (req, res) => {
   res.json(mcpManifest);
@@ -87,7 +132,7 @@ app.post('/mcp/tools/:toolName', async (req, res) => {
   const args = req.body;
   
   // Add breadcrumb for tool call
-  if (process.env.SENTRY_DSN) {
+  if (process.env['SENTRY_DSN']) {
     Sentry.addBreadcrumb({
       message: `Tool call: ${toolName}`,
       category: 'tool',
@@ -148,12 +193,12 @@ app.post('/mcp/tools/:toolName', async (req, res) => {
         break;
     }
 
-    res.json(result);
+    return res.json(result);
   } catch (error) {
     console.error('Tool execution error:', error);
     
     // Capture exception in Sentry
-    if (process.env.SENTRY_DSN) {
+    if (process.env['SENTRY_DSN']) {
       Sentry.captureException(error, {
         tags: {
           tool_name: toolName,
@@ -165,7 +210,7 @@ app.post('/mcp/tools/:toolName', async (req, res) => {
       });
     }
     
-    res.status(500).json({
+    return res.status(500).json({
       error: {
         code: 'TOOL_EXECUTION_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error'
@@ -222,12 +267,15 @@ app.get('/mcp/tools', (req, res) => {
   });
 });
 
+// Airia webhook routes
+app.use("/", airiaRoute);
+
 // Error handling middleware
 app.use((error: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('Unhandled error:', error);
   
   // Capture exception in Sentry
-  if (process.env.SENTRY_DSN) {
+  if (process.env['SENTRY_DSN']) {
     Sentry.captureException(error, {
       tags: {
         route: req.path,
@@ -266,6 +314,13 @@ const server = app.listen(PORT, () => {
   console.log(`🔗 Health check: http://localhost:${PORT}/health`);
   console.log(`📋 MCP Manifest: http://localhost:${PORT}/mcp/manifest`);
   console.log(`🛠️  Available tools: http://localhost:${PORT}/mcp/tools`);
+  console.log(`📩 Airia Webhook listening at POST /airia/finsage`);
+  if (process.env['AIRIA_WEBHOOK_URL']) {
+    console.log(`🌐 Airia webhook URL configured: ${process.env['AIRIA_WEBHOOK_URL']}`);
+  }
+  if (process.env['AIRIA_WEBHOOK_SECRET']) {
+    console.log(`🔒 Airia webhook secret loaded`);
+  }
 });
 
 // Graceful shutdown

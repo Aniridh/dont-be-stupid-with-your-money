@@ -1,0 +1,45 @@
+{
+  "name": "finsage-agent",
+  "version": "1.0.0",
+  "description": "Autonomous, cautious, data-driven trading & portfolio monitoring agent",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend", 
+    "apps/runner"
+  ],
+  "scripts": {
+    "dev:all": "concurrently \"npm -w backend run dev\" \"npm -w frontend run dev\" --names \"backend,frontend\" --prefix-colors \"blue,green\" && sleep 5 && npm run preflight && echo \"\\n🎉 Development servers started!\\n📱 Open: http://localhost:3000\\n🔍 Click any source_ref chip to test\\n\"",
+    "preflight": "node scripts/preflight.mjs",
+    "env:report": "node scripts/env_report.mjs",
+    "apify:test": "node scripts/apify_test.mjs",
+    "price:test": "node scripts/price_test.mjs",
+    "fundamentals:test": "node scripts/fundamentals_test.mjs",
+    "truefoundry:test": "node scripts/truefoundry_test.mjs",
+    "test:live-flags": "node scripts/test_live_flags.mjs",
+    "test:prereqs": "node scripts/test_prereqs.mjs",
+    "test:audit-redaction": "node scripts/test_audit_redaction.mjs",
+    "test:smoke": "vitest tests/smoke --run",
+    "smoke": "npm -w apps/runner run suggest && echo 'ok'",
+    "smoke:live": "node scripts/live_check.mjs",
+    "test:live-check": "node scripts/test_live_check.mjs",
+    "test:provider-badges": "node scripts/test_provider_badges.mjs",
+    "build": "npm -w backend run build && npm -w frontend run build",
+    "start": "npm -w backend run start",
+    "typecheck": "npm -w backend run typecheck && npm -w frontend run typecheck",
+    "lint": "npm -w backend run lint && npm -w frontend run lint"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "keywords": [
+    "trading",
+    "agent",
+    "mcp",
+    "fintech",
+    "portfolio",
+    "ai"
+  ],
+  "author": "jajajadagoat",
+  "license": "MIT"
+}

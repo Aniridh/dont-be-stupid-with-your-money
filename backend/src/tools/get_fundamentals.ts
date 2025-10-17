@@ -7,14 +7,15 @@ import {
   ErrorResponse, 
   FundamentalData 
 } from '../lib/schema.js';
-import { isStubMode } from '../env.js';
+import { isStubMode, isLiveFunds } from '../env.js';
+import { getFundamentals as fetchFundamentalsData } from '../lib/fundamentals.js';
 
 export async function getFundamentals(input: GetFundamentalsInput): Promise<SuccessResponse | ErrorResponse> {
   const toolCallId = generateToolCallId();
   const startTime = Date.now();
 
   // Add breadcrumb for tool execution
-  if (process.env.SENTRY_DSN) {
+  if (process.env['SENTRY_DSN']) {
     Sentry.addBreadcrumb({
       message: 'Executing get_fundamentals tool',
       category: 'tool',
@@ -30,12 +31,17 @@ export async function getFundamentals(input: GetFundamentalsInput): Promise<Succ
   try {
     let fundamentals: FundamentalData[];
 
-    if (isStubMode()) {
-      // Generate deterministic stub data
-      fundamentals = generateStubFundamentals(input.symbols);
+    if (isLiveFunds()) {
+      try {
+        // LIVE mode: Use Yahoo Finance with LRU caching
+        fundamentals = await fetchRealFundamentals(input.symbols, input.metrics);
+      } catch (error) {
+        console.warn(`⚠️ Live fundamentals fetch failed, falling back to stub: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        fundamentals = generateStubFundamentals(input.symbols);
+      }
     } else {
-      // TODO: Implement real fundamentals fetching from APIs
-      fundamentals = await fetchRealFundamentals(input.symbols, input.metrics);
+      // STUB mode: Generate deterministic stub data
+      fundamentals = generateStubFundamentals(input.symbols);
     }
 
     const response: SuccessResponse = {
@@ -55,7 +61,7 @@ export async function getFundamentals(input: GetFundamentalsInput): Promise<Succ
     const duration = Date.now() - startTime;
     
     // Capture exception in Sentry
-    if (process.env.SENTRY_DSN) {
+    if (process.env['SENTRY_DSN']) {
       Sentry.captureException(error, {
         tags: {
           tool_name: 'get_fundamentals',
@@ -79,7 +85,7 @@ export async function getFundamentals(input: GetFundamentalsInput): Promise<Succ
     auditLogger.logToolCall(toolCallId, 'get_fundamentals', input, errorResponse, duration, {
       code: 'FUNDAMENTALS_FETCH_ERROR',
       message: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined
+      ...(error instanceof Error && error.stack && { stack: error.stack })
     });
 
     return errorResponse;
@@ -179,7 +185,32 @@ function generateStubFundamentals(symbols: string[]): FundamentalData[] {
 }
 
 async function fetchRealFundamentals(symbols: string[], metrics?: string[]): Promise<FundamentalData[]> {
-  // TODO: Implement real fundamentals fetching from Yahoo Finance, Alpha Vantage, etc.
-  // This would make API calls to external data providers
-  throw new Error('Real fundamentals fetching not implemented yet');
+  try {
+    const fundamentalsData = await fetchFundamentalsData(symbols);
+    
+    return fundamentalsData.map((data: any) => ({
+      symbol: data.symbol,
+      pe_ratio: data.pe_ttm,
+      peg_ratio: data.peg,
+      ev_ebitda: data.ev_ebitda,
+      roic: data.roic,
+      gross_margin: data.gross_margin_pct ? data.gross_margin_pct / 100 : null,
+      current_ratio: data.current_ratio,
+      debt_to_equity: null, // Not available in Yahoo Finance
+      net_debt_to_ebitda: data.net_debt_to_ebitda,
+      eps_consensus: data.eps_consensus,
+      eps_actual: data.eps_actual,
+      earnings_date: data.earnings_date,
+      timestamp: new Date().toISOString(),
+      // Enhanced properties
+      pe_ttm: data.pe_ttm,
+      peg: data.peg,
+      gross_margin_pct: data.gross_margin_pct,
+      insider_txns: data.insider_txns,
+      provider: data.provider
+    }));
+  } catch (error) {
+    console.error('Error fetching real fundamentals:', error);
+    throw new Error(`Failed to fetch fundamentals: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
 }

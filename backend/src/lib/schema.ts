@@ -76,22 +76,51 @@ export const QuoteDataSchema = z.object({
   change_percent: z.number(),
   volume: z.number(),
   timestamp: z.string(),
+  // Enhanced properties for LIVE mode
+  source: z.string().optional(),
+  error: z.string().optional(),
+  day_change_pct: z.number().optional(),
+  range_52w: z.object({
+    high: z.number(),
+    low: z.number(),
+  }).optional(),
+  avg_volume_30d: z.number().optional(),
+  sma20: z.number().nullable().optional(),
+  sma50: z.number().nullable().optional(),
+  sma200: z.number().nullable().optional(),
+  atr14: z.number().nullable().optional(),
+  rsi14: z.number().nullable().optional(),
+});
+
+export const InsiderTransactionSchema = z.object({
+  date: z.string(),
+  transaction_type: z.string(),
+  shares: z.number(),
+  price: z.number().optional(),
+  value: z.number().optional(),
+  insider_name: z.string().optional(),
 });
 
 export const FundamentalDataSchema = z.object({
   symbol: z.string(),
-  pe_ratio: z.number(),
-  peg_ratio: z.number(),
-  ev_ebitda: z.number(),
-  roic: z.number(),
-  gross_margin: z.number(),
-  current_ratio: z.number(),
-  debt_to_equity: z.number(),
-  net_debt_to_ebitda: z.number(),
-  eps_consensus: z.number(),
-  eps_actual: z.number().optional(),
-  earnings_date: z.string().optional(),
+  pe_ratio: z.number().nullable().optional(),
+  peg_ratio: z.number().nullable().optional(),
+  ev_ebitda: z.number().nullable().optional(),
+  roic: z.number().nullable().optional(),
+  gross_margin: z.number().nullable().optional(),
+  current_ratio: z.number().nullable().optional(),
+  debt_to_equity: z.number().nullable().optional(),
+  net_debt_to_ebitda: z.number().nullable().optional(),
+  eps_consensus: z.number().nullable().optional(),
+  eps_actual: z.number().nullable().optional(),
+  earnings_date: z.string().nullable().optional(),
   timestamp: z.string(),
+  // Enhanced properties for LIVE mode
+  pe_ttm: z.number().nullable().optional(),
+  peg: z.number().nullable().optional(),
+  gross_margin_pct: z.number().nullable().optional(),
+  insider_txns: z.array(InsiderTransactionSchema).optional(),
+  provider: z.string().optional(),
 });
 
 export const NewsDataSchema = z.object({

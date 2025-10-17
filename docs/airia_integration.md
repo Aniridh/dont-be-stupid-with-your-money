@@ -4,6 +4,272 @@
 
 Airia provides the orchestration layer for FinSage, managing agent workflows, policy enforcement, and real-time event processing. This guide covers setting up and integrating with the Airia platform.
 
+## Step-by-Step Airia Flow (Screenshot Guide)
+
+### 1. Create Agent: "FinSage Orchestrator"
+
+**Screenshot Target: Agent Creation Canvas**
+
+1. Navigate to Airia Platform → Agents → Create New Agent
+2. **Agent Name**: `FinSage Orchestrator`
+3. **Description**: `Autonomous trading and portfolio monitoring agent with MCP tool integration`
+4. **Agent Type**: `Financial Advisor`
+5. **Capabilities**: 
+   - Market Analysis
+   - Portfolio Management
+   - Risk Assessment
+   - Signal Generation
+
+**Configuration:**
+```json
+{
+  "name": "FinSage Orchestrator",
+  "description": "Autonomous trading and portfolio monitoring agent",
+  "type": "financial_advisor",
+  "capabilities": ["market_analysis", "portfolio_management", "risk_assessment"],
+  "webhook_endpoint": "https://your-domain.com/webhook/finsage"
+}
+```
+
+### 2. Inputs: Webhook Configuration
+
+**Screenshot Target: Connector Settings**
+
+1. Go to Agent → Connectors → Add Webhook
+2. **Webhook Name**: `FinSage Market Data`
+3. **Endpoint URL**: `https://your-domain.com/webhook/finsage`
+4. **Event Payload Schema**:
+```json
+{
+  "tickers": ["AAPL", "MSFT", "GOOGL", "TSLA"],
+  "mode": "SUGGEST",
+  "config_url": "https://your-domain.com/config/finsage.json",
+  "timestamp": "2024-01-15T14:30:00Z",
+  "user_id": "user_123"
+}
+```
+
+**Webhook Security:**
+- Authentication: API Key
+- Secret: `finsage_webhook_secret_2024`
+- Rate Limiting: 100 requests/minute
+
+### 3. Actions: HTTP Calls to Backend MCP Tools
+
+**Screenshot Target: Action Configuration Canvas**
+
+**Action 1: Get Portfolio Data**
+- **Action Type**: HTTP Request
+- **Method**: POST
+- **URL**: `https://your-backend.com/mcp/tools/get_portfolio`
+- **Headers**: 
+  - `Content-Type: application/json`
+  - `Authorization: Bearer ${MCP_API_KEY}`
+- **Body**:
+```json
+{
+  "user_id": "{{webhook.user_id}}",
+  "tool_call_id": "{{generate_uuid()}}"
+}
+```
+
+**Action 2: Get Market Quotes**
+- **Action Type**: HTTP Request
+- **Method**: POST
+- **URL**: `https://your-backend.com/mcp/tools/get_quotes`
+- **Body**:
+```json
+{
+  "symbols": "{{webhook.tickers}}",
+  "fields": ["price", "change", "volume"],
+  "tool_call_id": "{{generate_uuid()}}"
+}
+```
+
+**Action 3: Get Fundamentals**
+- **Action Type**: HTTP Request
+- **Method**: POST
+- **URL**: `https://your-backend.com/mcp/tools/get_fundamentals`
+- **Body**:
+```json
+{
+  "symbols": "{{webhook.tickers}}",
+  "metrics": ["pe_ratio", "peg_ratio", "ev_ebitda"],
+  "tool_call_id": "{{generate_uuid()}}"
+}
+```
+
+**Action 4: Get News Sentiment**
+- **Action Type**: HTTP Request
+- **Method**: POST
+- **URL**: `https://your-backend.com/mcp/tools/get_news`
+- **Body**:
+```json
+{
+  "symbols": "{{webhook.tickers}}",
+  "hours_back": 24,
+  "tool_call_id": "{{generate_uuid()}}"
+}
+```
+
+### 4. Policy: Enforce SUGGEST/MONITOR Only
+
+**Screenshot Target: Policy Configuration**
+
+**Execution Policy:**
+```json
+{
+  "execution_mode": "SUGGEST_ONLY",
+  "allowed_actions": ["analyze", "suggest", "monitor"],
+  "forbidden_actions": ["buy", "sell", "execute_trade"],
+  "risk_limits": {
+    "max_position_size": 0.1,
+    "max_sector_weight": 0.3,
+    "max_portfolio_var": 0.05
+  },
+  "constraints": {
+    "trading_hours_only": true,
+    "require_approval": true,
+    "max_suggestion_value": 10000
+  }
+}
+```
+
+**Validation Rules:**
+- Mode must be `SUGGEST` or `MONITOR`
+- No direct trade execution allowed
+- All suggestions require human approval
+- Risk limits must be respected
+
+### 5. Output: Strict JSON to Slack/Webhook
+
+**Screenshot Target: Output Configuration**
+
+**JSON Output Schema:**
+```json
+{
+  "status": "success",
+  "mode": "{{webhook.mode}}",
+  "timestamp": "{{current_timestamp}}",
+  "agent_id": "finsage-orchestrator",
+  "universe": "{{webhook.tickers}}",
+  "signals": [
+    {
+      "symbol": "AAPL",
+      "signal": "BUY",
+      "confidence": 0.85,
+      "source_refs": ["tool:get_quotes:uuid-123", "tool:get_fundamentals:uuid-456"]
+    }
+  ],
+  "suggestions": [
+    {
+      "action": "BUY",
+      "symbol": "AAPL",
+      "quantity": 10,
+      "reason": "Strong fundamentals and positive momentum",
+      "source_refs": ["tool:get_quotes:uuid-123", "tool:get_fundamentals:uuid-456"]
+    }
+  ],
+  "tool_call_ids": {
+    "get_portfolio": "uuid-123",
+    "get_quotes": "uuid-456",
+    "get_fundamentals": "uuid-789",
+    "get_news": "uuid-012"
+  }
+}
+```
+
+**Output Destinations:**
+1. **Slack Webhook**: `https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK`
+2. **Webhook**: `https://your-frontend.com/api/airia-results`
+3. **Audit Log**: `https://your-backend.com/api/audit/log`
+
+### 6. Screen to Capture: Successful Run
+
+**Screenshot Target: Agent Execution Dashboard**
+
+**Expected Run Output:**
+```json
+{
+  "execution_id": "exec_20240115_143000_abc123",
+  "status": "completed",
+  "duration_ms": 2340,
+  "agent": "FinSage Orchestrator",
+  "trigger": "webhook",
+  "input": {
+    "tickers": ["AAPL", "MSFT", "GOOGL"],
+    "mode": "SUGGEST",
+    "config_url": "https://your-domain.com/config/finsage.json"
+  },
+  "output": {
+    "status": "success",
+    "mode": "SUGGEST",
+    "universe": ["AAPL", "MSFT", "GOOGL"],
+    "signals": [
+      {
+        "symbol": "AAPL",
+        "signal": "BUY",
+        "confidence": 0.85,
+        "source_refs": ["tool:get_quotes:uuid-123", "tool:get_fundamentals:uuid-456"]
+      }
+    ],
+    "suggestions": [
+      {
+        "action": "BUY",
+        "symbol": "AAPL",
+        "quantity": 10,
+        "reason": "Strong fundamentals and positive momentum",
+        "source_refs": ["tool:get_quotes:uuid-123", "tool:get_fundamentals:uuid-456"]
+      }
+    ],
+    "tool_call_ids": {
+      "get_portfolio": "uuid-123",
+      "get_quotes": "uuid-456",
+      "get_fundamentals": "uuid-789",
+      "get_news": "uuid-012"
+    }
+  },
+  "metrics": {
+    "total_latency_ms": 2340,
+    "tool_calls": 4,
+    "successful_calls": 4,
+    "failed_calls": 0
+  }
+}
+```
+
+## Sponsor Tools Integration Table
+
+| Sponsor Tool | Integration Point | Purpose | Configuration |
+|--------------|-------------------|---------|---------------|
+| **Apify** | Data Source Connector | Real-time market data scraping | Actor ID: `yahoo-finance-scraper` |
+| **TrueFoundry** | Risk Scoring Model | AI-powered risk assessment | Gateway URL: `https://your-tf-gateway.com` |
+| **Airia** | Agent Orchestration | Workflow management and policy enforcement | Agent: `FinSage Orchestrator` |
+| **Sentry** | Error Monitoring | Real-time error tracking and alerts | DSN: `https://your-sentry-dsn.com` |
+| **Redpanda** | Event Streaming | Real-time data pipeline | Brokers: `localhost:19092` |
+
+## Sponsor Tools Flow Integration
+
+### 1. Apify → Airia
+- **Trigger**: Market data webhook from Apify
+- **Payload**: `{tickers, timestamp, data}`
+- **Action**: Route to FinSage Orchestrator
+
+### 2. Airia → TrueFoundry
+- **Action**: Risk scoring for each ticker
+- **Features**: `{rsi, atr, news_sentiment, pe, peg}`
+- **Response**: Risk score and signal
+
+### 3. Airia → Sentry
+- **Event**: All tool executions and errors
+- **Context**: `{agent_id, execution_id, tool_name, error}`
+- **Alert**: Real-time error notifications
+
+### 4. Airia → Redpanda
+- **Event**: All market signals and suggestions
+- **Topic**: `finsage-signals`
+- **Consumers**: Frontend dashboard, audit system
+
 ## Platform Setup
 
 ### 1. Create Airia Account

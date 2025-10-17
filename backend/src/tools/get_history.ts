@@ -7,13 +7,15 @@ import {
   ErrorResponse 
 } from '../lib/schema.js';
 import { isStubMode } from '../env.js';
+import { getHistory as fetchHistoryData } from '../lib/prices.js';
+import { calculateAllIndicators } from '../lib/ta.js';
 
 export async function getHistory(input: GetHistoryInput): Promise<SuccessResponse | ErrorResponse> {
   const toolCallId = generateToolCallId();
   const startTime = Date.now();
 
   // Add breadcrumb for tool execution
-  if (process.env.SENTRY_DSN) {
+  if (process.env['SENTRY_DSN']) {
     Sentry.addBreadcrumb({
       message: 'Executing get_history tool',
       category: 'tool',
@@ -34,7 +36,7 @@ export async function getHistory(input: GetHistoryInput): Promise<SuccessRespons
       // Generate deterministic stub data
       history = generateStubHistory(input.symbol, input.period, input.interval);
     } else {
-      // TODO: Implement real historical data fetching from APIs
+      // LIVE mode: Use real price provider with technical analysis
       history = await fetchRealHistory(input.symbol, input.period, input.interval);
     }
 
@@ -55,7 +57,7 @@ export async function getHistory(input: GetHistoryInput): Promise<SuccessRespons
     const duration = Date.now() - startTime;
     
     // Capture exception in Sentry
-    if (process.env.SENTRY_DSN) {
+    if (process.env['SENTRY_DSN']) {
       Sentry.captureException(error, {
         tags: {
           tool_name: 'get_history',
@@ -79,7 +81,7 @@ export async function getHistory(input: GetHistoryInput): Promise<SuccessRespons
     auditLogger.logToolCall(toolCallId, 'get_history', input, errorResponse, duration, {
       code: 'HISTORY_FETCH_ERROR',
       message: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined
+      ...(error instanceof Error && error.stack && { stack: error.stack })
     });
 
     return errorResponse;
@@ -199,7 +201,78 @@ function getIntervalMs(interval: string): number {
 }
 
 async function fetchRealHistory(symbol: string, period: string, interval?: string): Promise<any[]> {
-  // TODO: Implement real historical data fetching from Yahoo Finance, Alpha Vantage, etc.
-  // This would make API calls to external data providers
-  throw new Error('Real historical data fetching not implemented yet');
+  // Retry logic with exponential backoff
+  const maxRetries = 2;
+  const baseDelay = 250;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      // Fetch historical OHLCV data
+      const ohlcvData = await fetchHistoryData(symbol, period);
+      
+      if (ohlcvData.length === 0) {
+        throw new Error(`No historical data found for ${symbol}`);
+      }
+      
+      // Calculate technical indicators for multiple periods
+      const sma20Indicators = calculateAllIndicators(ohlcvData, 20, 14, 14);
+      const sma50Indicators = calculateAllIndicators(ohlcvData, 50, 14, 14);
+      const sma200Indicators = calculateAllIndicators(ohlcvData, 200, 14, 14);
+      
+      // Combine OHLCV data with technical indicators
+      const history = ohlcvData.map((candle, index) => {
+        // Calculate 30-day average volume for each point
+        const startIdx = Math.max(0, index - 29);
+        const recentVolume = ohlcvData.slice(startIdx, index + 1).map(h => h.v);
+        const avgVolume30d = recentVolume.length > 0 
+          ? recentVolume.reduce((sum, vol) => sum + vol, 0) / recentVolume.length 
+          : candle.v;
+        
+        // Calculate 52-week range up to this point
+        const historicalData = ohlcvData.slice(0, index + 1);
+        const prices = historicalData.map(h => h.h);
+        const lowPrices = historicalData.map(h => h.l);
+        const range52w = {
+          high: prices.length > 0 ? Math.max(...prices) : candle.h,
+          low: lowPrices.length > 0 ? Math.min(...lowPrices) : candle.l
+        };
+        
+        return {
+          timestamp: candle.t,
+          open: candle.o,
+          high: candle.h,
+          low: candle.l,
+          close: candle.c,
+          volume: candle.v,
+          date: new Date(candle.t).toISOString().split('T')[0],
+          // Enhanced technical indicators
+          sma_20: sma20Indicators.sma[index] || null,
+          sma_50: sma50Indicators.sma[index] || null,
+          sma_200: sma200Indicators.sma[index] || null,
+          rsi_14: sma20Indicators.rsi[index] || null,
+          atr_14: sma20Indicators.atr[index] || null,
+          // Additional metrics
+          avg_volume_30d: Math.round(avgVolume30d),
+          range_52w: range52w,
+          day_change_pct: index > 0 
+            ? ((candle.c - ohlcvData[index - 1]!.c) / ohlcvData[index - 1]!.c) * 100 
+            : 0
+        };
+      });
+      
+      return history;
+      
+    } catch (error) {
+      if (attempt === maxRetries) {
+        console.error(`Error fetching history for ${symbol}:`, error);
+        throw new Error(`Failed to fetch historical data for ${symbol}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+      
+      // Wait before retry with exponential backoff
+      const delay = baseDelay * Math.pow(2, attempt);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  
+  throw new Error(`Failed to fetch history for ${symbol} after ${maxRetries + 1} attempts`);
 }

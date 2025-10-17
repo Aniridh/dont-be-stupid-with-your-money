@@ -1,0 +1,59 @@
+{
+  "execution_policy": {
+    "can_auto_trade": false,
+    "max_trade_size_usd": 10000,
+    "require_confirmation": true
+  },
+  "signals": {
+    "valuation": {
+      "pe_high": 35,
+      "peg_low": 1,
+      "ev_ebitda_high": 18
+    },
+    "technical": {
+      "rsi_oversold": 30,
+      "rsi_overbought": 70,
+      "atr_stop_multiplier": 2.0
+    },
+    "momentum": {
+      "golden_cross_lookback": 50,
+      "death_cross_lookback": 200
+    }
+  },
+  "risk": {
+    "max_single_position_pct": 0.15,
+    "max_sector_pct": 0.30,
+    "max_kelly_cap": 0.25,
+    "max_var_pct": 0.05,
+    "stop_loss_pct": 0.08,
+    "max_drawdown_pct": 0.20
+  },
+  "rebalance": {
+    "drift_threshold_pct": 0.05,
+    "min_rebalance_interval_days": 7,
+    "max_turnover_pct": 0.20
+  },
+  "universe": {
+    "default_symbols": ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "SPY", "QQQ", "VTI"],
+    "excluded_symbols": [],
+    "sector_limits": {
+      "technology": 0.40,
+      "healthcare": 0.20,
+      "financial": 0.20,
+      "consumer_discretionary": 0.15,
+      "energy": 0.10
+    }
+  },
+  "backtest": {
+    "default_period": "1y",
+    "default_interval": "1d",
+    "benchmark": "SPY",
+    "initial_capital": 100000
+  },
+  "output": {
+    "max_signals": 10,
+    "max_suggestions": 5,
+    "include_alternatives": true,
+    "include_risks": true
+  }
+}

@@ -1,0 +1,2 @@
+# This directory stores runtime outputs from the FinSage runner
+# Each run creates a timestamped JSON file with the model's response

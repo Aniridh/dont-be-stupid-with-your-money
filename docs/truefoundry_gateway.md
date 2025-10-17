@@ -407,4 +407,152 @@ async def get_quotes(symbols: list[str]) -> dict:
     return await yahoo_finance.get_quotes(symbols)
 ```
 
+## Risk Scoring Integration
+
+### 1. Environment Configuration
+Add to your `.env` file:
+```bash
+# TrueFoundry Configuration
+TRUEFOUNDRY_API_KEY=your_truefoundry_api_key_here
+TRUEFOUNDRY_GATEWAY_URL=https://your-gateway-url.com
+```
+
+### 2. Risk Scoring Model
+The FinSage agent includes a risk scoring model that analyzes market conditions and generates risk signals:
+
+```typescript
+// Risk scoring features
+interface RiskFeatures {
+  rsi: number;                    // Relative Strength Index
+  atr: number;                    // Average True Range
+  news_sentiment_mean: number;    // Average news sentiment (-1 to 1)
+  pe: number;                     // Price-to-Earnings ratio
+  peg: number;                    // PEG ratio
+}
+
+// Risk score response
+interface RiskScoreResponse {
+  enabled: boolean;
+  score?: number;                 // Risk score (0-1, where 0=low risk, 1=high risk)
+  meta?: {
+    latency_ms: number;
+    model: string;
+  };
+  error?: string;
+}
+```
+
+### 3. Risk Signal Generation
+The risk scoring model generates signals based on risk thresholds:
+
+```typescript
+// Risk thresholds
+if (riskScore < 0.3) {
+  signal = 'BUY';     // Low risk - good buying opportunity
+  confidence = 0.8;
+} else if (riskScore > 0.7) {
+  signal = 'SELL';    // High risk - consider selling
+  confidence = 0.7;
+} else {
+  signal = 'HOLD';    // Medium risk - maintain position
+  confidence = 0.5;
+}
+```
+
+### 4. Integration in Runner
+The risk scoring is automatically integrated in SUGGEST mode:
+
+```typescript
+// In apps/runner/src/runner.ts
+if (isTrueFoundryConfigured()) {
+  const riskResult = await scoreRisk(features);
+  
+  if (riskResult.enabled && riskResult.score !== undefined) {
+    // Add risk signals to response
+    for (const symbol of universe) {
+      const riskSignal = {
+        symbol,
+        signal: determineSignal(riskResult.score),
+        confidence: calculateConfidence(riskResult.score),
+        source_refs: [`tool:truefoundry:${uuidv4()}`]
+      };
+      response.signals.push(riskSignal);
+    }
+  }
+}
+```
+
+### 5. Model Deployment
+Deploy the risk scoring model to TrueFoundry:
+
+```yaml
+# risk-model.yaml
+name: finsage-risk-v0
+version: 1.0.0
+model_type: classification
+framework: scikit-learn
+resources:
+  cpu: 500m
+  memory: 1Gi
+  replicas: 2
+endpoints:
+  - name: risk-scoring
+    path: /predict
+    method: POST
+    input_schema:
+      type: object
+      properties:
+        features:
+          type: object
+          properties:
+            rsi: { type: number }
+            atr: { type: number }
+            news_sentiment_mean: { type: number }
+            pe: { type: number }
+            peg: { type: number }
+    output_schema:
+      type: object
+      properties:
+        score: { type: number, minimum: 0, maximum: 1 }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+```
+
+### 6. Testing Risk Scoring
+Test the risk scoring functionality:
+
+```bash
+# Test with mock data
+npm run suggest
+
+# Check for risk signals in output
+# Look for signals with source_refs containing "tool:truefoundry:"
+```
+
+### 7. Monitoring and Observability
+Monitor risk scoring performance:
+
+```python
+# Risk scoring metrics
+metrics = {
+    "risk_score_latency": "Average latency of risk scoring requests",
+    "risk_score_accuracy": "Accuracy of risk predictions",
+    "risk_signal_distribution": "Distribution of BUY/HOLD/SELL signals",
+    "model_confidence": "Average confidence of risk predictions"
+}
+
+# Set up alerts for risk scoring
+alerts = [
+    {
+        "metric": "risk_score_latency",
+        "threshold": 2000,  # 2 seconds
+        "severity": "warning"
+    },
+    {
+        "metric": "risk_score_accuracy",
+        "threshold": 0.7,   # 70%
+        "severity": "critical"
+    }
+]
+```
+
 For complete documentation, visit [TrueFoundry AI Gateway Docs](https://docs.truefoundry.com/gateway/intro-to-llm-gateway).

@@ -59,9 +59,55 @@ export class AuditLogger {
     return createHash('sha256').update(str).digest('hex').substring(0, 16);
   }
 
+  /**
+   * Redact sensitive information from objects before logging
+   * Redacts values matching /(TOKEN|KEY|SECRET|DSN)/i and Authorization headers
+   */
+  private redactSensitiveData(obj: any): any {
+    if (obj === null || obj === undefined) {
+      return obj;
+    }
+
+    if (typeof obj === 'string') {
+      // Redact strings that look like tokens/keys/secrets
+      if (/(TOKEN|KEY|SECRET|DSN)/i.test(obj)) {
+        return '[REDACTED]';
+      }
+      return obj;
+    }
+
+    if (Array.isArray(obj)) {
+      return obj.map(item => this.redactSensitiveData(item));
+    }
+
+    if (typeof obj === 'object') {
+      const redacted: any = {};
+      for (const [key, value] of Object.entries(obj)) {
+        // Redact Authorization headers
+        if (key.toLowerCase() === 'authorization') {
+          redacted[key] = '[REDACTED]';
+        }
+        // Redact keys that look like they contain sensitive data
+        else if (/(TOKEN|KEY|SECRET|DSN)/i.test(key)) {
+          redacted[key] = '[REDACTED]';
+        }
+        // Recursively redact nested objects
+        else {
+          redacted[key] = this.redactSensitiveData(value);
+        }
+      }
+      return redacted;
+    }
+
+    return obj;
+  }
+
   log(entry: Omit<AuditLogEntry, 'timestamp'>): void {
+    // Redact sensitive data before logging
+    const redactedEntry = this.redactSensitiveData(entry);
+    
     const logEntry: AuditLogEntry = {
-      ...entry,
+      ...redactedEntry,
       timestamp: new Date().toISOString()
     };
 
@@ -81,8 +127,12 @@ export class AuditLogger {
     durationMs: number,
     error?: { code: string; message: string; stack?: string }
   ): void {
-    const requestHash = this.hashObject(request);
-    const responseHash = this.hashObject(response);
+    // Redact sensitive data before hashing and logging
+    const redactedRequest = this.redactSensitiveData(request);
+    const redactedResponse = this.redactSensitiveData(response);
+    
+    const requestHash = this.hashObject(redactedRequest);
+    const responseHash = this.hashObject(redactedResponse);
 
     this.log({
       tool_call_id: toolCallId,
@@ -94,7 +144,7 @@ export class AuditLogger {
           'content-type': 'application/json',
           'user-agent': 'finsage-mcp-server'
         },
-        body: request,
+        body: redactedRequest,
         hash: requestHash
       },
       response: {
@@ -102,7 +152,7 @@ export class AuditLogger {
         headers: {
           'content-type': 'application/json'
         },
-        body: response,
+        body: redactedResponse,
         hash: responseHash
       },
       duration_ms: durationMs,

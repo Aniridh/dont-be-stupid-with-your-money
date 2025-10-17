@@ -66,6 +66,14 @@ News APIs       Fundamentals       Event sourcing    Constraints     Load balanc
 
 ## Quickstart
 
+### Environment Setup
+
+| Mode | Required Keys | Purpose |
+|------|---------------|---------|
+| **STUB** | `STUB_MODE=true`<br>`NEXT_PUBLIC_BACKEND_URL` | Test with mock data |
+| **LIVE** | `STUB_MODE=false`<br>`GEMINI_API_KEY` or `OPENAI_API_KEY`<br>`APIFY_TOKEN` + `APIFY_ACTOR_ID`<br>`SENTRY_DSN` | Full functionality with real APIs |
+| **Optional** | `TRUEFOUNDRY_API_KEY`<br>`AIRIA_API_KEY`<br>`NEWS_API_KEY` | Enhanced features |
+
 ### Local Development
 
 ```bash
@@ -75,17 +83,34 @@ cd finsage-agent
 
 # Install dependencies
 npm install
-# or
-pip install -r requirements.txt
 
 # Configure environment
 cp .env.example .env
 # Edit .env with your API keys
 
-# Start services
-npm run dev
-# or
-python main.py
+# Check environment status
+npm run env:report
+
+# Start all services
+npm run dev:all
+# This will start backend + frontend + run preflight check
+
+# Or start individually
+npm -w backend run dev    # Backend on :3001
+npm -w frontend run dev   # Frontend on :3000
+```
+
+### Quick Verification
+
+```bash
+# Run environment report
+npm run env:report
+
+# Run preflight check (verifies end-to-end loop)
+npm run preflight
+
+# Open dashboard
+open http://localhost:3000
 ```
 
 ### Cloud Deployment

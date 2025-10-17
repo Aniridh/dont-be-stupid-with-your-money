@@ -1,0 +1,59 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-white rounded-lg shadow-sm border border-gray-200 p-6;
+  }
+  
+  .metric-card {
+    @apply bg-white rounded-lg shadow-sm border border-gray-200 p-4 hover:shadow-md transition-shadow;
+  }
+  
+  .chip {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium cursor-pointer transition-colors;
+  }
+  
+  .chip-primary {
+    @apply bg-primary-100 text-primary-800 hover:bg-primary-200;
+  }
+  
+  .chip-success {
+    @apply bg-success-100 text-success-800 hover:bg-success-200;
+  }
+  
+  .chip-warning {
+    @apply bg-warning-100 text-warning-800 hover:bg-warning-200;
+  }
+  
+  .chip-danger {
+    @apply bg-danger-100 text-danger-800 hover:bg-danger-200;
+  }
+  
+  .chip-gray {
+    @apply bg-gray-100 text-gray-800 hover:bg-gray-200;
+  }
+  
+  .btn {
+    @apply inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 transition-colors;
+  }
+  
+  .btn-primary {
+    @apply btn bg-primary-600 text-white hover:bg-primary-700 focus:ring-primary-500;
+  }
+  
+  .btn-secondary {
+    @apply btn bg-gray-600 text-white hover:bg-gray-700 focus:ring-gray-500;
+  }
+  
+  .btn-outline {
+    @apply btn border-gray-300 text-gray-700 bg-white hover:bg-gray-50 focus:ring-primary-500;
+  }
+}
