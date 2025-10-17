@@ -196,19 +196,34 @@ export default function Dashboard() {
 
   // Preserve scroll position on refresh
   useEffect(() => {
-    const savedScrollPosition = sessionStorage.getItem('scrollPosition');
-    if (savedScrollPosition) {
-      window.scrollTo(0, parseInt(savedScrollPosition));
-    }
-    
-    const handleBeforeUnload = () => {
+    // Save scroll position before any navigation
+    const saveScrollPosition = () => {
       sessionStorage.setItem('scrollPosition', window.scrollY.toString());
     };
     
-    window.addEventListener('beforeunload', handleBeforeUnload);
+    // Restore scroll position immediately
+    const restoreScrollPosition = () => {
+      const savedScrollPosition = sessionStorage.getItem('scrollPosition');
+      if (savedScrollPosition) {
+        // Use requestAnimationFrame to ensure DOM is ready
+        requestAnimationFrame(() => {
+          window.scrollTo(0, parseInt(savedScrollPosition));
+        });
+      }
+    };
+    
+    // Save on beforeunload
+    window.addEventListener('beforeunload', saveScrollPosition);
+    
+    // Restore immediately
+    restoreScrollPosition();
+    
+    // Also restore after a short delay to handle React hydration
+    const timeoutId = setTimeout(restoreScrollPosition, 100);
     
     return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('beforeunload', saveScrollPosition);
+      clearTimeout(timeoutId);
     };
   }, []);
 
@@ -268,9 +283,9 @@ export default function Dashboard() {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50">
-        <div className="flex items-center justify-center py-20">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+        <div className="p-8">
+          <div className="flex items-center space-x-3">
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-600"></div>
             <p className="text-gray-600">Loading FinSage Dashboard...</p>
           </div>
         </div>
@@ -281,18 +296,18 @@ export default function Dashboard() {
   if (error) {
     return (
       <div className="min-h-screen bg-gray-50">
-        <div className="flex items-center justify-center py-20">
-          <div className="text-center">
-            <AlertTriangle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-            <p className="text-red-600 mb-4">{error}</p>
-            <button 
-              onClick={fetchData}
-              className="btn btn-primary"
-            >
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Retry
-            </button>
+        <div className="p-8">
+          <div className="flex items-center space-x-3 mb-4">
+            <AlertTriangle className="h-6 w-6 text-red-500" />
+            <p className="text-red-600">{error}</p>
           </div>
+          <button 
+            onClick={fetchData}
+            className="btn btn-primary"
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Retry
+          </button>
         </div>
       </div>
     );
@@ -301,10 +316,8 @@ export default function Dashboard() {
   if (!data) {
     return (
       <div className="min-h-screen bg-gray-50">
-        <div className="flex items-center justify-center py-20">
-          <div className="text-center">
-            <p className="text-gray-600">No data available</p>
-          </div>
+        <div className="p-8">
+          <p className="text-gray-600">No data available</p>
         </div>
       </div>
     );

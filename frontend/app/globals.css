@@ -5,12 +5,18 @@
 @layer base {
   html {
     font-family: 'Inter', system-ui, sans-serif;
-    scroll-behavior: smooth;
+    scroll-behavior: auto;
   }
   
   /* Prevent automatic scrolling on page refresh */
   html, body {
     scroll-behavior: auto;
+    overflow-x: hidden;
+  }
+  
+  /* Prevent any automatic scrolling behavior */
+  * {
+    scroll-behavior: auto !important;
   }
 }
 

@@ -17,6 +17,26 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              // Prevent automatic scrolling on page load
+              (function() {
+                const savedScrollPosition = sessionStorage.getItem('scrollPosition');
+                if (savedScrollPosition) {
+                  window.scrollTo(0, parseInt(savedScrollPosition));
+                }
+                
+                // Save scroll position before unload
+                window.addEventListener('beforeunload', function() {
+                  sessionStorage.setItem('scrollPosition', window.scrollY.toString());
+                });
+              })();
+            `,
+          }}
+        />
+      </head>
       <body className={inter.className}>
         <div className="min-h-screen bg-gray-50">
           {children}
