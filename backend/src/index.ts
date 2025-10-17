@@ -1,0 +1,210 @@
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import { createWriteStream } from 'fs';
+import { join } from 'path';
+import { server as mcpServer, mcpManifest } from './mcp.js';
+import { env, isStubMode } from './env.js';
+import { auditLogger } from './lib/audit.js';
+
+const app = express();
+
+// Middleware
+app.use(helmet());
+app.use(cors());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
+
+// Request logging middleware
+app.use((req, res, next) => {
+  const start = Date.now();
+  const originalSend = res.send;
+  
+  res.send = function(data) {
+    const duration = Date.now() - start;
+    console.log(`${req.method} ${req.path} - ${res.statusCode} (${duration}ms)`);
+    return originalSend.call(this, data);
+  };
+  
+  next();
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    mode: isStubMode() ? 'stub' : 'live',
+    version: env.MCP_SERVER_VERSION
+  });
+});
+
+// MCP manifest endpoint
+app.get('/mcp/manifest', (req, res) => {
+  res.json(mcpManifest);
+});
+
+// MCP tools endpoint
+app.post('/mcp/tools/:toolName', async (req, res) => {
+  try {
+    const { toolName } = req.params;
+    const args = req.body;
+
+    // Validate tool name
+    const validTools = ['get_portfolio', 'get_quotes', 'get_fundamentals', 'get_news', 'get_history', 'trade_simulate', 'trade_execute', 'log_event'];
+    if (!validTools.includes(toolName)) {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_TOOL',
+          message: `Unknown tool: ${toolName}`
+        }
+      });
+    }
+
+    // Call the appropriate tool
+    let result;
+    switch (toolName) {
+      case 'get_portfolio':
+        const { getPortfolio } = await import('./tools/get_portfolio.js');
+        result = await getPortfolio(args);
+        break;
+      case 'get_quotes':
+        const { getQuotes } = await import('./tools/get_quotes.js');
+        result = await getQuotes(args);
+        break;
+      case 'get_fundamentals':
+        const { getFundamentals } = await import('./tools/get_fundamentals.js');
+        result = await getFundamentals(args);
+        break;
+      case 'get_news':
+        const { getNews } = await import('./tools/get_news.js');
+        result = await getNews(args);
+        break;
+      case 'get_history':
+        const { getHistory } = await import('./tools/get_history.js');
+        result = await getHistory(args);
+        break;
+      case 'trade_simulate':
+        const { tradeSimulate } = await import('./tools/trade_simulate.js');
+        result = await tradeSimulate(args);
+        break;
+      case 'trade_execute':
+        const { tradeExecute } = await import('./tools/trade_execute.js');
+        result = await tradeExecute(args);
+        break;
+      case 'log_event':
+        const { logEvent } = await import('./tools/log_event.js');
+        result = await logEvent(args);
+        break;
+    }
+
+    res.json(result);
+  } catch (error) {
+    console.error('Tool execution error:', error);
+    res.status(500).json({
+      error: {
+        code: 'TOOL_EXECUTION_ERROR',
+        message: error instanceof Error ? error.message : 'Unknown error'
+      }
+    });
+  }
+});
+
+// List available tools
+app.get('/mcp/tools', (req, res) => {
+  res.json({
+    tools: [
+      {
+        name: 'get_portfolio',
+        description: 'Get current portfolio positions and values',
+        endpoint: '/mcp/tools/get_portfolio'
+      },
+      {
+        name: 'get_quotes',
+        description: 'Get real-time stock quotes',
+        endpoint: '/mcp/tools/get_quotes'
+      },
+      {
+        name: 'get_fundamentals',
+        description: 'Get fundamental analysis data',
+        endpoint: '/mcp/tools/get_fundamentals'
+      },
+      {
+        name: 'get_news',
+        description: 'Get relevant news and sentiment analysis',
+        endpoint: '/mcp/tools/get_news'
+      },
+      {
+        name: 'get_history',
+        description: 'Get historical price data',
+        endpoint: '/mcp/tools/get_history'
+      },
+      {
+        name: 'trade_simulate',
+        description: 'Simulate trades without execution',
+        endpoint: '/mcp/tools/trade_simulate'
+      },
+      {
+        name: 'trade_execute',
+        description: 'Execute trades (simulation only in STUB_MODE)',
+        endpoint: '/mcp/tools/trade_execute'
+      },
+      {
+        name: 'log_event',
+        description: 'Log events for monitoring and audit',
+        endpoint: '/mcp/tools/log_event'
+      }
+    ]
+  });
+});
+
+// Error handling middleware
+app.use((error: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error('Unhandled error:', error);
+  res.status(500).json({
+    error: {
+      code: 'INTERNAL_ERROR',
+      message: 'Internal server error'
+    }
+  });
+});
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({
+    error: {
+      code: 'NOT_FOUND',
+      message: `Route ${req.method} ${req.path} not found`
+    }
+  });
+});
+
+// Start server
+const PORT = parseInt(env.PORT);
+const server = app.listen(PORT, () => {
+  console.log(`🚀 FinSage MCP Server running on port ${PORT}`);
+  console.log(`📊 Mode: ${isStubMode() ? 'STUB (test data)' : 'LIVE (real APIs)'}`);
+  console.log(`🔗 Health check: http://localhost:${PORT}/health`);
+  console.log(`📋 MCP Manifest: http://localhost:${PORT}/mcp/manifest`);
+  console.log(`🛠️  Available tools: http://localhost:${PORT}/mcp/tools`);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully');
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received, shutting down gracefully');
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
+});
+
+// Export for testing
+export { app };

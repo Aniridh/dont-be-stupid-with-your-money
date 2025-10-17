@@ -1,0 +1,2 @@
+# This file ensures the runtime_logs directory is tracked by git
+# Audit logs will be written to subdirectories by date
