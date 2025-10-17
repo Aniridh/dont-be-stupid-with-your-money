@@ -194,6 +194,24 @@ export default function Dashboard() {
     { ticker: "MSFT", qty: 75, price: 385.75 },
   ];
 
+  // Preserve scroll position on refresh
+  useEffect(() => {
+    const savedScrollPosition = sessionStorage.getItem('scrollPosition');
+    if (savedScrollPosition) {
+      window.scrollTo(0, parseInt(savedScrollPosition));
+    }
+    
+    const handleBeforeUnload = () => {
+      sessionStorage.setItem('scrollPosition', window.scrollY.toString());
+    };
+    
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, []);
+
   useEffect(() => {
     const baseUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
     console.log("Health check URL:", baseUrl + "/health");
@@ -249,10 +267,12 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading FinSage Dashboard...</p>
+      <div className="min-h-screen bg-gray-50">
+        <div className="flex items-center justify-center py-20">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+            <p className="text-gray-600">Loading FinSage Dashboard...</p>
+          </div>
         </div>
       </div>
     );
@@ -260,16 +280,19 @@ export default function Dashboard() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <AlertTriangle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-          <p className="text-red-600 mb-4">{error}</p>
-          <button 
-            onClick={fetchData}
-            className="btn btn-primary"
-          >
-            Retry
-          </button>
+      <div className="min-h-screen bg-gray-50">
+        <div className="flex items-center justify-center py-20">
+          <div className="text-center">
+            <AlertTriangle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+            <p className="text-red-600 mb-4">{error}</p>
+            <button 
+              onClick={fetchData}
+              className="btn btn-primary"
+            >
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Retry
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -277,9 +300,11 @@ export default function Dashboard() {
 
   if (!data) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-gray-600">No data available</p>
+      <div className="min-h-screen bg-gray-50">
+        <div className="flex items-center justify-center py-20">
+          <div className="text-center">
+            <p className="text-gray-600">No data available</p>
+          </div>
         </div>
       </div>
     );
