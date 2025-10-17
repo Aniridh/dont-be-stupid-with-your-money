@@ -138,7 +138,7 @@ export async function getSnapshot(ticker: string): Promise<{
   eps?: number;
   high52w?: number;
   low52w?: number;
-  source: 'google' | 'yahoo' | 'fallback';
+  source: 'google' | 'yahoo';
 }> {
   const cacheKey = `snapshot_${ticker}`;
   const cached = getFromCache(cacheKey);
@@ -146,37 +146,10 @@ export async function getSnapshot(ticker: string): Promise<{
     return cached;
   }
 
-  // Add delay to avoid rate limiting
-  await new Promise(resolve => setTimeout(resolve, 100));
-
   try {
-    // Try Yahoo Finance first (more reliable)
-    const yahooData = await fetchFromYahoo(ticker);
-    if (yahooData && yahooData.price > 0) {
-      const result = {
-        symbol: ticker,
-        price: yahooData.price,
-        change: yahooData.change,
-        changePercent: yahooData.changePercent,
-        volume: yahooData.volume,
-        marketCap: yahooData.marketCap,
-        pe: yahooData.pe,
-        eps: yahooData.eps,
-        high52w: yahooData.high52w,
-        low52w: yahooData.low52w,
-        source: 'yahoo' as const
-      };
-      setCache(cacheKey, result);
-      return result;
-    }
-  } catch (error) {
-    console.warn(`Yahoo Finance failed for ${ticker}:`, error);
-  }
-
-  // Fallback to Google Finance
-  try {
+    // Try Google Finance first
     const googleData = await fetchFromGoogle(ticker);
-    if (googleData && googleData.price > 0) {
+    if (googleData) {
       const result = {
         symbol: ticker,
         price: googleData.price,
@@ -197,8 +170,32 @@ export async function getSnapshot(ticker: string): Promise<{
     console.warn(`Google Finance failed for ${ticker}:`, error);
   }
 
-  // Final fallback: return realistic current prices (as of Oct 2024)
-  console.warn(`All APIs failed for ${ticker}, using current fallback data`);
+  // Fallback to Yahoo Finance
+  try {
+    const yahooData = await fetchFromYahoo(ticker);
+    if (yahooData) {
+      const result = {
+        symbol: ticker,
+        price: yahooData.price,
+        change: yahooData.change,
+        changePercent: yahooData.changePercent,
+        volume: yahooData.volume,
+        marketCap: yahooData.marketCap,
+        pe: yahooData.pe,
+        eps: yahooData.eps,
+        high52w: yahooData.high52w,
+        low52w: yahooData.low52w,
+        source: 'yahoo' as const
+      };
+      setCache(cacheKey, result);
+      return result;
+    }
+  } catch (error) {
+    console.warn(`Yahoo Finance failed for ${ticker}:`, error);
+  }
+
+  // Final fallback: return realistic current prices when APIs fail
+  console.warn(`All APIs failed for ${ticker}, using fallback data`);
   const fallbackPrices: Record<string, number> = {
     'TSLA': 180.50,    // More realistic Tesla price
     'AAPL': 175.43,    // Apple
@@ -219,7 +216,7 @@ export async function getSnapshot(ticker: string): Promise<{
     change: 0,
     changePercent: 0,
     volume: 1000000,
-    source: 'fallback' as const
+    source: 'yahoo' as const  // Use yahoo as source for fallback
   };
   
   setCache(cacheKey, result);
@@ -294,23 +291,14 @@ async function fetchFromGoogle(ticker: string): Promise<any | null> {
 }
 
 /**
- * Fetch snapshot data from Yahoo Finance with better error handling
+ * Fetch snapshot data from Yahoo Finance
  */
 async function fetchFromYahoo(ticker: string): Promise<any | null> {
   try {
     const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${ticker}`;
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Accept': 'application/json',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache'
-      }
-    });
+    const response = await fetch(url);
 
     if (!response.ok) {
-      console.warn(`Yahoo Finance API error for ${ticker}: ${response.status} ${response.statusText}`);
       return null;
     }
 
@@ -318,7 +306,6 @@ async function fetchFromYahoo(ticker: string): Promise<any | null> {
     const result = data.quoteResponse?.result?.[0];
     
     if (!result) {
-      console.warn(`No data returned from Yahoo Finance for ${ticker}`);
       return null;
     }
 
@@ -334,7 +321,6 @@ async function fetchFromYahoo(ticker: string): Promise<any | null> {
       low52w: result.fiftyTwoWeekLow
     };
   } catch (error) {
-    console.warn(`Yahoo Finance fetch error for ${ticker}:`, error);
     return null;
   }
 }

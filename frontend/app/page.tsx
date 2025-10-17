@@ -323,8 +323,8 @@ export default function Dashboard() {
     );
   }
 
-  const totalChange = data.portfolio.positions.reduce((sum, pos) => sum + pos.change, 0);
-  const totalChangePercent = (totalChange / (data.portfolio.total_value - totalChange)) * 100;
+  const totalChange = data.portfolio?.positions?.reduce((sum, pos) => sum + pos.change, 0) || 0;
+  const totalChangePercent = data.portfolio?.total_value ? (totalChange / (data.portfolio.total_value - totalChange)) * 100 : 0;
 
   return (
     <div className="min-h-screen bg-gray-50">
