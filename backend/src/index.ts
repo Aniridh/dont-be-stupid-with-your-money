@@ -3,11 +3,48 @@ import cors from 'cors';
 import helmet from 'helmet';
 import { createWriteStream } from 'fs';
 import { join } from 'path';
+import * as Sentry from '@sentry/node';
 import { server as mcpServer, mcpManifest } from './mcp.js';
 import { env, isStubMode } from './env.js';
 import { auditLogger } from './lib/audit.js';
 
+// Initialize Sentry if DSN is provided
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: 'hackathon',
+    tracesSampleRate: 1.0,
+    integrations: [
+      new Sentry.Integrations.Http({ tracing: true }),
+      new Sentry.Integrations.Express({ app: undefined }), // Will be set after app creation
+    ],
+    beforeSend(event) {
+      // Filter out sensitive data
+      if (event.request?.data) {
+        delete event.request.data.apiKey;
+        delete event.request.data.password;
+        delete event.request.data.token;
+      }
+      return event;
+    },
+  });
+  
+  // Set global tags
+  Sentry.setTag('service', 'backend');
+  Sentry.setTag('env', 'hackathon');
+  
+  console.log('🔍 Sentry initialized for error tracking');
+} else {
+  console.log('⚠️  SENTRY_DSN not set, error tracking disabled');
+}
+
 const app = express();
+
+// Sentry middleware (must be first)
+if (process.env.SENTRY_DSN) {
+  app.use(Sentry.requestHandler());
+  app.use(Sentry.tracingHandler());
+}
 
 // Middleware
 app.use(helmet());
@@ -32,9 +69,9 @@ app.use((req, res, next) => {
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({
-    status: 'healthy',
+    ok: true,
+    stub: isStubMode(),
     timestamp: new Date().toISOString(),
-    mode: isStubMode() ? 'stub' : 'live',
     version: env.MCP_SERVER_VERSION
   });
 });
@@ -46,10 +83,23 @@ app.get('/mcp/manifest', (req, res) => {
 
 // MCP tools endpoint
 app.post('/mcp/tools/:toolName', async (req, res) => {
-  try {
-    const { toolName } = req.params;
-    const args = req.body;
+  const { toolName } = req.params;
+  const args = req.body;
+  
+  // Add breadcrumb for tool call
+  if (process.env.SENTRY_DSN) {
+    Sentry.addBreadcrumb({
+      message: `Tool call: ${toolName}`,
+      category: 'tool',
+      data: {
+        tool_name: toolName,
+        tool_call_id: args.tool_call_id || 'unknown'
+      },
+      level: 'info'
+    });
+  }
 
+  try {
     // Validate tool name
     const validTools = ['get_portfolio', 'get_quotes', 'get_fundamentals', 'get_news', 'get_history', 'trade_simulate', 'trade_execute', 'log_event'];
     if (!validTools.includes(toolName)) {
@@ -101,6 +151,20 @@ app.post('/mcp/tools/:toolName', async (req, res) => {
     res.json(result);
   } catch (error) {
     console.error('Tool execution error:', error);
+    
+    // Capture exception in Sentry
+    if (process.env.SENTRY_DSN) {
+      Sentry.captureException(error, {
+        tags: {
+          tool_name: toolName,
+          tool_call_id: args.tool_call_id || 'unknown'
+        },
+        extra: {
+          args: args
+        }
+      });
+    }
+    
     res.status(500).json({
       error: {
         code: 'TOOL_EXECUTION_ERROR',
@@ -161,6 +225,21 @@ app.get('/mcp/tools', (req, res) => {
 // Error handling middleware
 app.use((error: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('Unhandled error:', error);
+  
+  // Capture exception in Sentry
+  if (process.env.SENTRY_DSN) {
+    Sentry.captureException(error, {
+      tags: {
+        route: req.path,
+        method: req.method
+      },
+      extra: {
+        url: req.url,
+        headers: req.headers
+      }
+    });
+  }
+  
   res.status(500).json({
     error: {
       code: 'INTERNAL_ERROR',

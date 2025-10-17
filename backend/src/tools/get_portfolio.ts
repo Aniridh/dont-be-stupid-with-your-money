@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/node';
 import { generateToolCallId } from '../lib/uuid.js';
 import { auditLogger } from '../lib/audit.js';
 import { 
@@ -12,6 +13,20 @@ import { isStubMode } from '../env.js';
 export async function getPortfolio(input: GetPortfolioInput): Promise<SuccessResponse | ErrorResponse> {
   const toolCallId = generateToolCallId();
   const startTime = Date.now();
+
+  // Add breadcrumb for tool execution
+  if (process.env.SENTRY_DSN) {
+    Sentry.addBreadcrumb({
+      message: 'Executing get_portfolio tool',
+      category: 'tool',
+      data: {
+        tool_name: 'get_portfolio',
+        tool_call_id: toolCallId,
+        user_id: input.user_id
+      },
+      level: 'info'
+    });
+  }
 
   try {
     let portfolio: Portfolio;
@@ -41,6 +56,21 @@ export async function getPortfolio(input: GetPortfolioInput): Promise<SuccessRes
 
   } catch (error) {
     const duration = Date.now() - startTime;
+    
+    // Capture exception in Sentry
+    if (process.env.SENTRY_DSN) {
+      Sentry.captureException(error, {
+        tags: {
+          tool_name: 'get_portfolio',
+          tool_call_id: toolCallId
+        },
+        extra: {
+          input: input,
+          duration_ms: duration
+        }
+      });
+    }
+    
     const errorResponse: ErrorResponse = {
       tool_call_id: toolCallId,
       error: {

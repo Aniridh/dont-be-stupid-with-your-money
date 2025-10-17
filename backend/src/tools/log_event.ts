@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/node';
 import { generateToolCallId } from '../lib/uuid.js';
 import { auditLogger } from '../lib/audit.js';
 import { 
@@ -9,6 +10,21 @@ import {
 export async function logEvent(input: LogEventInput): Promise<SuccessResponse | ErrorResponse> {
   const toolCallId = generateToolCallId();
   const startTime = Date.now();
+
+  // Add breadcrumb for tool execution
+  if (process.env.SENTRY_DSN) {
+    Sentry.addBreadcrumb({
+      message: 'Executing log_event tool',
+      category: 'tool',
+      data: {
+        tool_name: 'log_event',
+        tool_call_id: toolCallId,
+        event_type: input.event_type,
+        severity: input.severity
+      },
+      level: 'info'
+    });
+  }
 
   try {
     // Log the event using the audit logger
@@ -61,6 +77,21 @@ export async function logEvent(input: LogEventInput): Promise<SuccessResponse | 
 
   } catch (error) {
     const duration = Date.now() - startTime;
+    
+    // Capture exception in Sentry
+    if (process.env.SENTRY_DSN) {
+      Sentry.captureException(error, {
+        tags: {
+          tool_name: 'log_event',
+          tool_call_id: toolCallId
+        },
+        extra: {
+          input: input,
+          duration_ms: duration
+        }
+      });
+    }
+    
     const errorResponse: ErrorResponse = {
       tool_call_id: toolCallId,
       error: {

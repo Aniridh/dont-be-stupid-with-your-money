@@ -14,46 +14,115 @@ Sentry provides comprehensive error tracking, performance monitoring, and observ
 
 ### 2. Install Sentry SDK
 ```bash
-# Node.js
-npm install @sentry/node @sentry/profiling-node
+# Node.js (Backend MCP Server)
+npm install @sentry/node
 
-# Python
+# Python (if needed)
 pip install sentry-sdk
 
 # Browser (if needed)
 npm install @sentry/browser
 ```
 
-## Error Tracking Setup
+## Backend MCP Server Integration
 
-### 1. Node.js Integration
-```javascript
-// sentry.js
-import * as Sentry from '@sentry/node';
-import { nodeProfilingIntegration } from '@sentry/profiling-node';
+### Initialization Location
+Sentry is initialized in `backend/src/index.ts` at the top of the file, before any other imports or middleware:
 
-Sentry.init({
+```typescript
+// Initialize Sentry if DSN is provided
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
     dsn: process.env.SENTRY_DSN,
-    environment: process.env.NODE_ENV || 'development',
-    integrations: [
-        nodeProfilingIntegration(),
-        new Sentry.Integrations.Http({ tracing: true }),
-        new Sentry.Integrations.Express({ app }),
-        new Sentry.Integrations.Mongo({ useMongoose: true })
-    ],
+    environment: 'hackathon',
     tracesSampleRate: 1.0,
-    profilesSampleRate: 1.0,
+    integrations: [
+      new Sentry.Integrations.Http({ tracing: true }),
+      new Sentry.Integrations.Express({ app: undefined }),
+    ],
     beforeSend(event) {
-        // Filter out sensitive data
-        if (event.request?.data) {
-            delete event.request.data.apiKey;
-            delete event.request.data.password;
-        }
-        return event;
-    }
+      // Filter out sensitive data
+      if (event.request?.data) {
+        delete event.request.data.apiKey;
+        delete event.request.data.password;
+        delete event.request.data.token;
+      }
+      return event;
+    },
+  });
+  
+  // Set global tags
+  Sentry.setTag('service', 'backend');
+  Sentry.setTag('env', 'hackathon');
+}
+```
+
+### Middleware Setup
+Sentry middleware is applied first in the Express app:
+
+```typescript
+// Sentry middleware (must be first)
+if (process.env.SENTRY_DSN) {
+  app.use(Sentry.requestHandler());
+  app.use(Sentry.tracingHandler());
+}
+```
+
+## What's Captured
+
+### 1. Tool Execution Tracking
+Every tool call is tracked with breadcrumbs and error capture:
+
+```typescript
+// Breadcrumb for each tool execution
+Sentry.addBreadcrumb({
+  message: `Tool call: ${toolName}`,
+  category: 'tool',
+  data: {
+    tool_name: toolName,
+    tool_call_id: args.tool_call_id || 'unknown'
+  },
+  level: 'info'
 });
 
-export default Sentry;
+// Exception capture with tool context
+Sentry.captureException(error, {
+  tags: {
+    tool_name: toolName,
+    tool_call_id: args.tool_call_id || 'unknown'
+  },
+  extra: {
+    args: args
+  }
+});
+```
+
+### 2. Individual Tool Handlers
+Each tool handler includes Sentry instrumentation:
+
+- **Breadcrumbs**: Added at the start of each tool execution with tool name, call ID, and relevant input data
+- **Exception Capture**: All errors are captured with tool-specific context and metadata
+- **Tags**: Consistent tagging with `tool_name` and `tool_call_id` for easy filtering
+
+### 3. HTTP Request Tracking
+All HTTP requests are automatically tracked:
+
+- **Request/Response tracing**: Performance monitoring for all endpoints
+- **Error capture**: Unhandled errors in Express routes
+- **Breadcrumbs**: Request-level breadcrumbs for debugging
+
+### 4. Health Check Endpoint
+Updated health check returns Sentry status:
+
+```typescript
+app.get('/health', (req, res) => {
+  res.json({
+    ok: true,
+    stub: isStubMode(),
+    timestamp: new Date().toISOString(),
+    version: env.MCP_SERVER_VERSION
+  });
+});
 ```
 
 ### 2. Python Integration
