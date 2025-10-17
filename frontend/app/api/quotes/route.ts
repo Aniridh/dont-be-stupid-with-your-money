@@ -14,35 +14,70 @@ export async function GET(request: NextRequest) {
 
     const symbolList = symbols.split(',').map(s => s.trim().toUpperCase());
     
-    // In STUB_MODE, return demo quote data
-    const demoQuotes = symbolList.map(symbol => ({
-      symbol,
-      price: Math.random() * 500 + 50, // Random price between 50-550
-      change: (Math.random() - 0.5) * 20, // Random change between -10 to +10
-      changePercent: (Math.random() - 0.5) * 10, // Random change % between -5% to +5%
-      volume: Math.floor(Math.random() * 10000000) + 1000000,
-      marketCap: Math.floor(Math.random() * 1000000000000) + 100000000000,
-      timestamp: new Date().toISOString()
-    }));
+    // Call backend MCP server for real quotes
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+    const response = await fetch(`${backendUrl}/mcp/tools/get_quotes`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        symbols: symbolList
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Backend API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    
+    if (data.error) {
+      throw new Error(data.error.message || 'Backend error');
+    }
 
     return NextResponse.json({
-      quotes: demoQuotes,
+      quotes: data.data.quotes,
       symbols: symbolList,
-      source: 'stub',
+      source: 'live',
       timestamp: new Date().toISOString()
     });
 
   } catch (error) {
     console.error('Quotes API error:', error);
-    return NextResponse.json(
-      { 
-        error: 'Failed to fetch quotes',
-        quotes: [],
-        symbols: symbols ? symbols.split(',').map(s => s.trim().toUpperCase()) : [],
-        source: 'stub',
+    
+    // Fallback to realistic demo data if backend fails
+    const fallbackQuotes = symbolList.map(symbol => {
+      const prices: Record<string, number> = {
+        'TSLA': 180.50,
+        'AAPL': 175.43,
+        'SPY': 445.20,
+        'MSFT': 385.75,
+        'NVDA': 450.25,
+        'GOOGL': 142.80,
+        'AMZN': 155.30,
+        'META': 350.15,
+        'QQQ': 380.90,
+        'IWM': 200.45
+      };
+      
+      const price = prices[symbol] || 100.00;
+      
+      return {
+        symbol,
+        price,
+        change: 0,
+        changePercent: 0,
+        volume: 1000000,
         timestamp: new Date().toISOString()
-      },
-      { status: 500 }
-    );
+      };
+    });
+
+    return NextResponse.json({
+      quotes: fallbackQuotes,
+      symbols: symbolList,
+      source: 'fallback',
+      timestamp: new Date().toISOString()
+    });
   }
 }
