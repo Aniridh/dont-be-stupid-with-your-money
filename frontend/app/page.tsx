@@ -441,19 +441,19 @@ export default function Dashboard() {
                 <div className="metric-card">
                   <div className="text-sm font-medium text-gray-500">Total Value</div>
                   <div className="text-2xl font-bold text-gray-900">
-                    ${data.portfolio.total_value.toLocaleString()}
+                    ${data.portfolio?.total_value?.toLocaleString() || '0'}
                   </div>
                 </div>
                 <div className="metric-card">
                   <div className="text-sm font-medium text-gray-500">Cash</div>
                   <div className="text-2xl font-bold text-gray-900">
-                    ${data.portfolio.cash.toLocaleString()}
+                    ${data.portfolio?.cash?.toLocaleString() || '0'}
                   </div>
                 </div>
                 <div className="metric-card">
                   <div className="text-sm font-medium text-gray-500">Positions</div>
                   <div className="text-2xl font-bold text-gray-900">
-                    {data.portfolio.positions.length}
+                    {data.portfolio?.positions?.length || 0}
                   </div>
                 </div>
               </div>
@@ -471,7 +471,7 @@ export default function Dashboard() {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {data.portfolio.positions.map((position) => (
+                    {data.portfolio?.positions?.map((position) => (
                       <tr 
                         key={position.symbol} 
                         className="hover:bg-gray-50 cursor-pointer"
@@ -531,8 +531,8 @@ export default function Dashboard() {
             {/* Simulation Panel */}
             <div id="simulation">
               <SimulationPanel
-                currentAllocation={data.rebalance.current_allocation}
-                totalValue={data.portfolio.total_value}
+                currentAllocation={data.rebalance?.current_allocation || {}}
+                totalValue={data.portfolio?.total_value || 0}
                 onSimulate={handleSimulate}
                 isLiveMode={!status.stub}
               />
