@@ -533,3 +533,89 @@ function optimizeScrapingSchedule() {
 ```
 
 For complete documentation, visit [Apify Platform Docs](https://docs.apify.com/).
+
+## Live News Integration
+
+### Environment Variables
+
+Add these environment variables to your `.env` file for live news fetching:
+
+```bash
+# Apify Configuration
+APIFY_TOKEN=your_apify_api_token_here
+APIFY_ACTOR_ID=your_news_scraper_actor_id_here
+```
+
+### News Tool Integration
+
+The `get_news` tool now supports two modes:
+
+#### STUB_MODE (Default)
+- Uses deterministic mock data
+- No external API calls
+- Safe for development and testing
+- Returns 6-10 realistic news articles per symbol
+
+#### LIVE_MODE
+- Requires `APIFY_TOKEN` and `APIFY_ACTOR_ID` environment variables
+- Starts Apify actor run with ticker symbols and lookback period
+- Polls for completion (max 5 minutes, 5-second intervals)
+- Normalizes Apify output to standard NewsData format
+- Returns structured news data with sentiment analysis
+
+### Integration Flow
+
+1. **Actor Start**: POST to `https://api.apify.com/v2/acts/{ACTOR_ID}/runs`
+   ```json
+   {
+     "tickers": ["AAPL", "TSLA", "SPY"],
+     "lookback_days": 7
+   }
+   ```
+
+2. **Status Polling**: GET `https://api.apify.com/v2/actor-runs/{RUN_ID}`
+   - Polls every 5 seconds
+   - Waits for SUCCEEDED status
+   - Times out after 5 minutes
+   - Handles FAILED, ABORTED, TIMED-OUT statuses
+
+3. **Results Fetch**: GET `https://api.apify.com/v2/actor-runs/{RUN_ID}/dataset/items`
+   - Retrieves normalized news data
+   - Filters by requested symbols
+   - Sorts by publication date
+
+### Error Handling Scenarios
+
+The integration handles several error scenarios gracefully:
+
+- **Missing Environment Variables**: Throws clear error message
+- **Actor Start Failure**: Returns HTTP error details
+- **Actor Run Failure**: Captures specific failure status
+- **Polling Timeout**: Returns timeout error after 5 minutes
+- **Results Fetch Failure**: Returns HTTP error details
+- **Data Normalization**: Provides fallback values for missing fields
+
+### Data Normalization
+
+Apify output is normalized to match the NewsData schema:
+
+```typescript
+{
+  symbol: string,           // From item.symbol || item.ticker
+  headline: string,         // From item.title || item.headline
+  summary: string,          // From item.summary || item.description
+  sentiment: number,        // Parsed from item.sentiment (default: 0)
+  impact_score: number,     // Parsed from item.impact_score (default: 0.5)
+  published_at: string,     // ISO timestamp from item.publishedAt
+  source: string,           // From item.source || item.publisher
+  tags: string[]           // From item.tags array or item.category
+}
+```
+
+### Future Enhancements
+
+- **Webhook Support**: Replace polling with real-time webhooks for instant updates
+- **Caching**: Implement Redis caching for frequently requested news
+- **Rate Limiting**: Add intelligent rate limiting based on Apify quotas
+- **Error Recovery**: Implement retry logic and fallback to stub mode
+- **Batch Processing**: Support multiple concurrent actor runs for different symbol sets

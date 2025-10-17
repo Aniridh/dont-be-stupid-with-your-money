@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/node';
+import fetch from 'node-fetch';
 import { generateToolCallId } from '../lib/uuid.js';
 import { auditLogger } from '../lib/audit.js';
 import { 
@@ -34,7 +35,7 @@ export async function getNews(input: GetNewsInput): Promise<SuccessResponse | Er
       // Generate deterministic stub data
       news = generateStubNews(input.symbols, input.hours_back);
     } else {
-      // TODO: Implement real news fetching from APIs
+      // LIVE mode: Use Apify actor for real news fetching
       news = await fetchRealNews(input.symbols, input.hours_back);
     }
 
@@ -79,7 +80,7 @@ export async function getNews(input: GetNewsInput): Promise<SuccessResponse | Er
     auditLogger.logToolCall(toolCallId, 'get_news', input, errorResponse, duration, {
       code: 'NEWS_FETCH_ERROR',
       message: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined
+      ...(error instanceof Error && error.stack && { stack: error.stack })
     });
 
     return errorResponse;
@@ -251,10 +252,14 @@ function generateStubNews(symbols: string[], hoursBack: number): NewsData[] {
 
   symbols.forEach(symbol => {
     const templates = newsTemplates[symbol] || newsTemplates['SPY'];
+    if (!templates) return; // Skip if no templates available
+    
     const numArticles = 6 + (symbol.charCodeAt(0) % 5); // 6-10 articles per symbol
     
     for (let i = 0; i < numArticles; i++) {
       const template = templates[i % templates.length];
+      if (!template) continue; // Skip if template is undefined
+      
       const seed = symbol.charCodeAt(0) + i;
       const hoursAgo = (seed % hoursBack) + 1;
       const publishedAt = new Date(Date.now() - hoursAgo * 60 * 60 * 1000);
@@ -279,7 +284,120 @@ function generateStubNews(symbols: string[], hoursBack: number): NewsData[] {
 }
 
 async function fetchRealNews(symbols: string[], hoursBack: number): Promise<NewsData[]> {
-  // TODO: Implement real news fetching from Yahoo Finance, NewsAPI, etc.
-  // This would make API calls to external news providers
-  throw new Error('Real news fetching not implemented yet');
+  const apifyToken = process.env.APIFY_TOKEN;
+  const apifyActorId = process.env.APIFY_ACTOR_ID;
+  
+  if (!apifyToken || !apifyActorId) {
+    throw new Error('APIFY_TOKEN and APIFY_ACTOR_ID environment variables are required for live news fetching');
+  }
+
+  try {
+    // Start actor run
+    const runResponse = await fetch(`https://api.apify.com/v2/acts/${apifyActorId}/runs`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apifyToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        tickers: symbols,
+        lookback_days: Math.ceil(hoursBack / 24)
+      })
+    });
+
+    if (!runResponse.ok) {
+      throw new Error(`Failed to start Apify actor: ${runResponse.statusText}`);
+    }
+
+    const runData = await runResponse.json() as { data: { id: string } };
+    const runId = runData.data.id;
+
+    // Poll for completion
+    let completed = false;
+    let attempts = 0;
+    const maxAttempts = 60; // 5 minutes max wait time
+    const pollInterval = 5000; // 5 seconds
+
+    while (!completed && attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, pollInterval));
+      
+      const statusResponse = await fetch(`https://api.apify.com/v2/actor-runs/${runId}`, {
+        headers: {
+          'Authorization': `Bearer ${apifyToken}`
+        }
+      });
+
+      if (!statusResponse.ok) {
+        throw new Error(`Failed to check actor status: ${statusResponse.statusText}`);
+      }
+
+      const statusData = await statusResponse.json() as { data: { status: string } };
+      const status = statusData.data.status;
+
+      if (status === 'SUCCEEDED') {
+        completed = true;
+      } else if (status === 'FAILED' || status === 'ABORTED' || status === 'TIMED-OUT') {
+        throw new Error(`Actor run failed with status: ${status}`);
+      }
+
+      attempts++;
+    }
+
+    if (!completed) {
+      throw new Error('Actor run timed out after 5 minutes');
+    }
+
+    // Fetch results
+    const resultsResponse = await fetch(`https://api.apify.com/v2/actor-runs/${runId}/dataset/items`, {
+      headers: {
+        'Authorization': `Bearer ${apifyToken}`
+      }
+    });
+
+    if (!resultsResponse.ok) {
+      throw new Error(`Failed to fetch actor results: ${resultsResponse.statusText}`);
+    }
+
+    const rawResults = await resultsResponse.json() as any[];
+    
+    // Normalize to standard output format
+    return normalizeApifyNews(rawResults, symbols);
+
+  } catch (error) {
+    console.error('Error fetching news from Apify:', error);
+    throw error;
+  }
 }
+
+function normalizeApifyNews(rawResults: any[], symbols: string[]): NewsData[] {
+  const normalizedNews: NewsData[] = [];
+
+  rawResults.forEach((item: any) => {
+    // Normalize Apify output to our NewsData format
+    // This assumes Apify returns data in a specific format - adjust as needed
+    const newsItem: NewsData = {
+      symbol: item.symbol || item.ticker || 'UNKNOWN',
+      headline: item.title || item.headline || 'No headline available',
+      summary: item.summary || item.description || item.content || '',
+      sentiment: parseFloat(item.sentiment) || 0,
+      impact_score: parseFloat(item.impact_score) || 0.5,
+      published_at: item.publishedAt || item.published_at || item.date || new Date().toISOString(),
+      source: item.source || item.publisher || item.domain || 'Unknown',
+      tags: Array.isArray(item.tags) ? item.tags : (item.category ? [item.category] : [])
+    };
+
+    // Only include news for requested symbols
+    if (symbols.includes(newsItem.symbol)) {
+      normalizedNews.push(newsItem);
+    }
+  });
+
+  // Sort by published_at (most recent first)
+  return normalizedNews.sort((a, b) => 
+    new Date(b.published_at).getTime() - new Date(a.published_at).getTime()
+  );
+}
+
+// TODO: Support Apify webhooks for real-time news updates
+// This would eliminate the need for polling and provide instant updates
+// when new news articles are available for monitored symbols
